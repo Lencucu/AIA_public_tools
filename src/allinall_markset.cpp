@@ -1,4 +1,4 @@
-#include"include/allinall_strpool.hpp"
+#include"../include/allinall_markset.hpp"
 #include<cstring>
 #include<cassert>
 #include<utility>
@@ -7,15 +7,15 @@ namespace AIA{
 
 /*___________FUNC___________*/
 // static
-static size_t aslen(size_t len){
+size_t aslen(size_t len){
 	return len/sizeof(size_t)+1;
 }
 
-static size_t aslen(const char*str){
+size_t aslen(const char*str){
 	return strlen(str)/sizeof(size_t)+1;
 }
 
-static size_t content(size_t i,const char*str){
+size_t content(size_t i,const char*str){
 	size_t maxindex = aslen(str)-1;
 	assert(i<=maxindex+1);
 	if(i<maxindex) return ((const size_t*)str)[i];
@@ -39,10 +39,13 @@ void setSignal(originstr&str,char signal){
 
 /*___________CLASS FUNC___________*/
 // originstr
+
+#ifndef AIA_LINK_STRPOOL_WITH_BASETYPE
+
 void originstr::alloc(size_t len){
 	// len is base on size_type
-	if(++count==maxlife||capacity<len){
-		count=0;
+	if(++age==maxlife||capacity<len){
+		age=0;
 		if(capacity) delete as;
 		capacity=len;
 		as=new size_t[capacity];
@@ -50,29 +53,29 @@ void originstr::alloc(size_t len){
 }
 
 void originstr::reset(){
-	count=life-1;
+	age=maxlife-1;
 	(*this)=dftstr;
 }
 
-originstr::originstr(size_t max):life(max){
+originstr::originstr(size_t maxlife):maxlife(maxlife){
 	reset();
 }
 
-originstr::originstr(const char*str,size_t max):life(max){
+originstr::originstr(const char*str,size_t maxlife):maxlife(maxlife){
 	if(str==NULL) reset();
 	else (*this)=str;
 }
 
-originstr::originstr(const originstr&src,size_t max):life(max){
+originstr::originstr(const originstr&src,size_t maxlife):maxlife(maxlife){
 	(*this)=src;
 }
 
-originstr::originstr(originstr&&src,size_t max):life(max){
+originstr::originstr(originstr&&src,size_t maxlife):maxlife(maxlife){
 	(*this)=(std::move(src));
 }
 
 originstr::~originstr(){
-	if(capacity) delete as;
+	if(capacity) delete[] as;
 }
 
 originstr& originstr::operator=(const char*str){
@@ -101,7 +104,7 @@ originstr& originstr::operator=(originstr&&src){
 	as=src.as;
 	capacity=src.capacity;
 	length=src.length;
-	count=0;
+	age=0;
 
 	src.as=nullptr;
 	src.capacity=0;
@@ -151,7 +154,108 @@ size_t originstr::lenth() const{
 }
 
 
+#else
 
+
+void originstr::alloc(size_t bytesize){
+	line.alloc(bytesize);
+}
+
+void originstr::reset(){
+	(*this)=dftstr;
+}
+
+originstr::originstr(size_t maxlife):line(size_t(0),maxlife){
+	reset();
+}
+
+originstr::originstr(const char*str,size_t maxlife):line(size_t(0),maxlife){
+	if(str==nullptr) reset();
+	else (*this)=str;
+}
+
+originstr::originstr(const originstr&src,size_t maxlife):line(size_t(0),maxlife){
+	(*this)=src;
+}
+
+originstr::originstr(originstr&&src,size_t maxlife):line(size_t(0),maxlife){
+	(*this)=(std::move(src));
+}
+
+originstr::~originstr(){}
+
+originstr& originstr::operator=(const char*str){
+	if(str==line.ptr()||(line.size()&&!strcmp(str,line.ptr()))) return *this;
+	size_t length=strlen(str);
+	line.chgsizeTake(0,str,length+1);
+	line[length]=0;
+
+	return *this;
+}
+
+originstr& originstr::operator=(const originstr&src){
+	if(&src==this) return *this;
+	line.chgsizeTake(0,src.line);
+
+	return *this;
+}
+
+originstr& originstr::operator=(originstr&&src){
+	if(&src==this) return *this;
+	line=(std::move(src.line));
+
+	return *this;
+}
+
+bool originstr::operator==(const originstr&obj) const{
+	return line==obj.line;
+}
+
+bool originstr::operator!=(const originstr&obj) const{
+	return !(line==obj.line);
+}
+
+bool originstr::operator<(const originstr&obj) const{
+	return strcmp(line.ptr(),obj.line.ptr())<0?true:false;
+}
+
+bool originstr::operator==(const char*str) const{
+	if(str==nullptr) return false;
+	return !strcmp(str,line.ptr());
+}
+
+bool originstr::operator!=(const char*str) const{
+	if(str==nullptr) return true;
+	return strcmp(str,line.ptr());
+}
+
+
+originstr::operator const char*() const{
+	return line.ptr();
+}
+
+originstr::operator bool() const{
+	return strcmp(dftstr,line.ptr());
+}
+
+const char* originstr::c_str() const{
+	return line.ptr();
+}
+
+size_t originstr::lenth() const{
+	return line.size()-1;
+}
+
+#endif
+
+
+bool originstr::validStr() const{
+	if(str[0]!=signal_querry)
+	if(strcmp(str,""))
+	if(strcmp(str,dftstr))
+		return true;
+	return false;
+}
 
 
 
@@ -206,6 +310,11 @@ bool originid::operator!=(size_t num) const{
 	return num!=this->num;
 }
 
+bool originid::validID(size_t ignum) const{
+	if(index()!=ignum) return true;
+	return false;
+}
+
 originid::operator size_t() const{
 	return num;
 }
@@ -226,104 +335,6 @@ size_t originid::index() const{
 	return mid2;
 }
 
-
-// mark
-void mark::reset(){
-	originstr::reset();
-	originid::reset();
-}
-
-
-mark::mark(){}
-
-mark::mark(const char*str,size_t id):originstr(str),originid(id){}
-mark::mark(const char*str,int id):originstr(str),originid(id){}
-mark::mark(size_t id,const char*str):originstr(str),originid(id){}
-mark::mark(int id,const char*str):originstr(str),originid(id){}
-mark::mark(const char*str,BLon inBLon):originstr(str){
-	this->inBLon=inBLon;
-}
-mark::mark(BLon inBLon,const char*str):originstr(str){
-	this->inBLon=inBLon;
-}
-
-mark::mark(const mark&src){
-	(*this)=src;
-}
-
-mark::mark(mark&&src){
-	(*this)=std::move(src);
-}
-
-mark::~mark(){}
-
-
-mark& mark::operator=(size_t id){
-	originid::operator=(id);
-	return *this;
-}
-
-mark& mark::operator=(const char*str){
-	if(str==this->str) return *this;
-	originstr::operator=(str);
-	return *this;
-}
-
-mark& mark::operator=(const originstr&src){
-	if(src.str==this->str) return *this;
-	originstr::operator=(src);
-	return *this;
-}
-mark& mark::operator=(const originid&src){
-	originid::operator=(src);
-	return *this;
-}
-
-mark& mark::operator=(const mark&src){
-	if(&src==this) return *this;
-	originid::operator=(src);
-	originstr::operator=(src);
-	return *this;
-}
-
-mark& mark::operator=(originstr&&src){
-	originstr::operator=(std::move(src));
-	return *this;
-}
-
-mark& mark::operator=(mark&&src){
-	originid::operator=(src);
-	originstr::operator=(std::move(src));
-	return *this;
-}
-
-
-bool mark::operator==(const mark&obj) const{
-	if(&obj==this) return true;
-	return originid::operator==(obj)&&originstr::operator==(obj);
-}
-
-bool mark::operator!=(const mark&obj) const{
-	return !((*this)==obj);
-}
-
-bool mark::operator<(const mark&obj) const{
-	if(originid::operator==(obj)||originstr::operator==(obj))
-		return false;
-	return originid::operator<(obj);
-}
-
-mark::operator const char*() const{
-	return str;
-}
-
-mark::operator size_t() const{
-	return num;
-}
-
-mark::operator bool() const{
-	return originid::operator bool()&&originstr::operator bool();
-}
 
 
 
